@@ -21,6 +21,10 @@ int main()
 	btree1.insert(12,6);
 	btree1.insert(13,5);
 	btree1.insert(0,4);
+	btree1.insert(6,6);
+	btree1.insert(7,9);
+	btree1.insert(8,5);
+	btree1.insert(14,2);
 	btree1.midorder();
 	btree1.sequenceorder();
 	cout<<btree1.height()<<endl;

@@ -81,6 +81,8 @@ private:
   void midOrder(const shared_ptr<Bnode<T>>& _node) const;
   T* search(const shared_ptr<Bnode<T>>& _node,const int& _index);
   void Insert(shared_ptr<Bnode<T>>& _node,const int& _index,const T& _data,bool& _isupdate);
+  void nodeHandle(shared_ptr<Bnode<T>>& _node, const int& _removepos,bool& _isupdate);
+  int Remove(shared_ptr<Bnode<T>>& _node,const int& _index,bool& _isupdate);
   Bnode<T>* splitNode(shared_ptr<Bnode<T>>& _node,const int& _midpos,const bool _isfirstptrpos);
 public: 
   BTree(const int& _order);
@@ -168,6 +170,74 @@ inline void BTree<T>::Insert(shared_ptr<Bnode<T>> &_node,const int& _index,\
   if(findpos == 0) _node->ptr.insert(_node->ptr.begin(),shared_ptr<Bnode<T>>(newnodeptr));
   else _node->ptr.insert(_node->ptr.begin() + findpos + 1,shared_ptr<Bnode<T>>(newnodeptr));
   if(_node->key.size() <= order -1) _isupdate = false;
+}
+
+template <class T>
+inline void BTree<T>::nodeHandle(shared_ptr<Bnode<T>> &_node, const int& _removepos,bool &_isupdate)
+{
+  int _siblingtag = -1; //兄弟结点
+  shared_ptr<Bnode<T>>& handlenode = _node->ptr.at(_removepos);
+  bool isleaf = handlenode->isleaf;
+  if(_removepos < _node->key.size() && _node->ptr.at(_removepos + 1)->key.size() >= degree) _siblingtag = 1;  //右兄弟可借
+  else if(removepos > 0 && _node->ptr.at(_removepos - 1)->key.size() >= degree) _siblingtag = 0;  //左兄弟可借
+  if(_siblingtag == 0){ //左兄弟可借
+    shared_ptr<Bnode<T>>& leftsibling = _node->ptr.at(_removepos - 1);
+    handlenode->key.push_front(_node->key.at(_removepos - 1));
+    _node->key.at(_removepos - 1) = leftsibling->key.back();
+    leftsibling->key.pop_back();
+    if(!isleaf) handlenode->ptr.push_front(leftsibling->ptr.back());
+    leftsibling->ptr.pop_back();
+    _isupdate = false;
+    return;
+  }
+  else if(_siblingtag == 1){  //右兄弟可借
+    shared_ptr<Bnode<T>>& rightsibling = _node->ptr.at(_removepos + 1);
+    handlenode->key.push_back(_node->key.at(_removepos));
+    _node->key.at(_removepos) = rightsibling->key.front();
+    rightsibling->key.pop_front();
+    if(!isleaf) handlenode->ptr.push_back(rightsibling->ptr.front());
+    rightsibling->ptr.pop_front();
+    _isupdate = false;    
+    return;
+  }
+  //没有兄弟结点可以借，合并兄弟节点
+  if(_removepos == _node->key.size()){  //最右边的指针，只能合并左兄弟
+    shared_ptr<Bnode<T>>& handlenode = _node->ptr.at(_removepos);
+    shared_ptr<Bnode<T>>& leftsibling = _node->ptr.at(_removepos - 1);
+    handlenode->key.push_front(_node->key.at(_removepos - 1));
+    handlenode->key.insert(handlenode->key.begin(),leftsibling->key.begin(),leftsibling->key.end());
+    if(!isleaf) handlenode->ptr.insert(handlenode->ptr.begin(),leftsibling->ptr.begin(),leftsibling->ptr.end());
+    _node = handlenode;
+    leftsibling = nullptr;
+    _isupdate = false;
+    return;
+  }
+  shared_ptr<Bnode<T>>& handlenode = _node->ptr.at(_removepos);
+  shared_ptr<Bnode<T>>& rightsibling = _node->ptr.at(_removepos + 1);
+  handlenode->key.push_back(_node->key.at(_removepos));
+  handlenode->key.insert(handlenode->key.end(),rightsibling->key.begin(),rightsibling->key.end());
+  if(!isleaf) handlenode->ptr.insert(handlenode->ptr.end(),rightsibling->ptr.begin(),rightsibling->ptr.end());
+  _node = handlenode;
+  rightsibling = nullptr;
+  _isupdate = false;
+  return;
+}
+
+template <class T>
+inline int BTree<T>::Remove(shared_ptr<Bnode<T>> &_node, const int &_index, bool &_isupdate)
+{
+  if(_node->isleaf){  //叶子结点
+    int removepos = 0;
+    for(;removepos < _node->key.size() && _index != _node->key.at(removepos).first;++removepos);
+    if(removepos == _node->key.size()) return -1; 
+    else return removepos;
+  }
+  int removepos = 0;
+  for(;removepos < _node->key.size() && _index < _node->key.at(removepos).first;++removepos);
+  if(removepos < _node->key.size() && _index == _node->key.at(removepos).first) return removepos;
+  int resultpos = Remove(_node->ptr.at(removepos),_index,_isupdate);
+  if(resultpos == -1) return -1;  
+  //找到关键字，删除关键字并处理失衡
 }
 
 template <class T>
@@ -325,3 +395,5 @@ inline int BTree<T>::getdegree() const
 };
 
 #endif
+
+
