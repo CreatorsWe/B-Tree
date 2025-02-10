@@ -3,7 +3,9 @@
 #include <iostream>
 #include<vector>
 #include<memory>
+#include<algorithm>
 #include<utility>
+#include<queue>
 using namespace std;
 
 /*B-树结点类型，动态扩容，使用vector存储 key 和 指针，第 i 个 key两边指针是 ptr[i] 和 ptr[i+1]
@@ -17,41 +19,54 @@ public:
   bool isleaf;   //叶子结点不分配指针，即ptr.reset(0),结点默认为 叶子结点
 public:
   Bnode():key(),ptr(),isleaf(true){}; //会调用vector的无参构造函数
-  Bnode(const int& _index,const T& _data); 
-  Bnode(const pair<int,T>& _key);
-  Bnode(const vector<pair<int,T>>& _keyvec,const bool _isleaf = false);  //拷贝 key 容器
+  Bnode(const int& _index,const T& _data,const bool _isleaf = true); 
+  Bnode(const pair<int,T>& _key,const bool _isleaf = true);
+  Bnode(const vector<pair<int,T>>& _keyvec,const bool _isleaf = true);  //拷贝 key 容器
+  Bnode(Bnode<T>* _node,const int& _start,const int& _end); //浅拷贝指定size大小的node空间
   Bnode(Bnode<T>&& _node);
-  void leaf(); //leaf函数，回收指针空间
+  void printNode() const;
 };
 template<class T>
-Bnode<T>::Bnode(const int& _index,const T& _data){
+Bnode<T>::Bnode(const int& _index,const T& _data,const bool _isleaf){
   key.push_back(make_pair(_index,_data));
-  ptr.resize(0);
-  isleaf = true;
+  if(_isleaf == true) ptr.resize(0);
+  else ptr.insert(ptr.begin(),2,nullptr);
+  isleaf = _isleaf;
 };
 template<class T>
-Bnode<T>::Bnode(const pair<int,T>& _key) {
+Bnode<T>::Bnode(const pair<int,T>& _key,const bool _isleaf) {
   key.push_back(_key);
-  ptr.resize(0);
-  isleaf = true;
+  if(_isleaf == true) ptr.resize(0);
+  else ptr.insert(ptr.begin(),2,nullptr);
+  isleaf = _isleaf;
 };
 template <class T>
 inline Bnode<T>::Bnode(const vector<pair<int,T>>& _keyvec,const bool _isleaf):key(_keyvec){
   if(_isleaf == true) ptr.resize(0);    //叶子结点不分配指针空间
   else ptr.insert(ptr.begin(),_keyvec.size() + 1,nullptr); 
   isleaf = _isleaf;
-};
-template<class T>
-Bnode<T>::Bnode(Bnode<T>&& _node){
-  key(move(_node.key));
-  ptr(move(_node.ptr));
-  isleaf = _node.isleaf;
 }
 template <class T>
-inline void Bnode<T>::leaf() {
-  ptr.resize(0);
-  isleaf = true;
+inline Bnode<T>::Bnode(Bnode<T>* _node, const int& _start,const int& _end){
+  if(_start < 0 || _end > _node->key.size() + 1) throw("index out of range");
+  isleaf = _node->isleaf;
+  std::copy(_node->key.begin() + _start,_node->key.begin() + _end,std::back_inserter(key));
+  if(isleaf) ptr.resize(0);
+  else  std::copy(_node->ptr.begin() + _start, _node->ptr.begin() + _end + 1, std::back_inserter(ptr));
 };
+
+template<class T>
+Bnode<T>::Bnode(Bnode<T>&& _node){
+  key(_node.key);
+  ptr(_node.ptr);
+  isleaf = _node.isleaf;
+}
+
+template <class T>
+inline void Bnode<T>::printNode() const
+{
+  for(int i = 0; i < key.size();++i) cout<<key.at(i).first<<" ";
+}
 
 /*B-树：结点使用vector存储数据，实现动态扩容，使用智能指针管理内存，避免内存泄漏 */
 template<class T>
@@ -62,24 +77,28 @@ private:
   shared_ptr<Bnode<T>> root;
   int size;
   Bnode<T>* copy(const shared_ptr<Bnode<T>>& _node);
-  void printNode(const shared_ptr<Bnode<T>>& _node) const;
   void preOrder(const shared_ptr<Bnode<T>>& _node) const;
   void midOrder(const shared_ptr<Bnode<T>>& _node) const;
-  pair<int,T> Insert(shared_ptr<Bnode<T>>& _node,const int& _index,const T& _data,bool& _isupdate);
+  T* search(const shared_ptr<Bnode<T>>& _node,const int& _index);
+  void Insert(shared_ptr<Bnode<T>>& _node,const int& _index,const T& _data,bool& _isupdate);
+  Bnode<T>* splitNode(shared_ptr<Bnode<T>>& _node,const int& _midpos,const bool _isfirstptrpos);
 public: 
   BTree(const int& _order);
   BTree(const int& _order,const pair<int,T>& _key);
   BTree(const int& _order,const int& _index,const T& _data);
   BTree(const BTree<T>& _tree);
   BTree(BTree<T>&& _tree);
+  bool search(const int& _index); //返回指向数据的指针
   void insert(const int& _index,const T& _data);
   void insert(const pair<int,T>& _key);
   bool remove(const int& _index);
   int height() const;    //所有叶子结点都在同一层，迭代即可
-  void preorder() const; //递增序列
-  void midorder() const; //先打印根结点所有索引
+  void midorder() const; //中序遍历，递增序列
+  void sequenceorder() const;
   bool empty() const;
   int length() const;
+  int getorder() const;
+  int getdegree() const;
 };
 
 template <class T>
@@ -91,54 +110,82 @@ Bnode<T>* BTree<T>::copy(const shared_ptr<Bnode<T>> &_node){
 }
 
 template <class T>
-inline void BTree<T>::printNode(const shared_ptr<Bnode<T>> &_node) const
-{
-  for(int i = 0; i < _node->key.size();++i) cout<<_node->key.at(i).frist<<" ";
-
-} 
-
-template <class T>
-inline void BTree<T>::preOrder(const shared_ptr<Bnode<T>> &_node) const {  //打印结点 key
-  if(_node->isleaf){
-    printNode(_node);
-    return;
-  }
-  for(int i = 0;i<_node->key.size();++i){
-    cout<<_node->key.at(i).first<<" ";
-    preOrder(_node->ptr.at(i));
-  }
-  preOrder(_node->ptr.at(_node->key.size()));
-}
-
-template <class T>
 inline void BTree<T>::midOrder(const shared_ptr<Bnode<T>> &_node) const
 {
   if(_node->isleaf){
-    printNode(_node);
+    _node->printNode();
     return;
   }
-  printNode(_node);
-  for(int i = 0;i <= _node->key.size();++i) midOrder(ptr.at(i));
+  for(int i = 0;i<_node->key.size();++i){
+    midOrder(_node->ptr.at(i));
+    cout<<_node->key.at(i).first<<" ";
+  }
+  midOrder(_node->ptr.at(_node->key.size()));
 }
 
 template <class T>
-inline pair<int,T> BTree<T>::Insert(shared_ptr<Bnode<T>> &_node,const int& _index,const T& _data,bool& _isupdate)
+inline T* BTree<T>::search(const shared_ptr<Bnode<T>> &_node,const int& _index)
+{
+  if(_node->isleaf){
+    int findpos = 0;
+    for(;findpos < _node->key.size() && _index != _node->key.at(findpos).first;++findpos);
+    if(findpos == _node->key.size()) return nullptr;
+    else return &_node->key.at(findpos).second;
+  }
+  int findpos = 0;
+  for(;findpos < _node->key.size() && _index > _node->key.at(findpos).first;++findpos);
+  if(findpos < _node->key.size() && _index == _node->key.at(findpos).first) return &_node->key.at(findpos).second;
+  return search(_node->ptr.at(findpos),_index);
+}
+
+template <class T>
+inline void BTree<T>::Insert(shared_ptr<Bnode<T>> &_node,const int& _index,\
+                                    const T& _data,bool& _isupdate)
 {
   if(_node->isleaf){      //找到叶子结点
-    if(_node->key.empty()) {_node.push_back(make_pair(_index,_data));}  //叶子结点为空,插入
-    else{
-      int insertpos = 0;  //插入位置
-      for(;insertpos<_node->key.size();++insertpos){
-        if(_data < _node->key.at(insertpos)) break;
-      }
-      _node->key.insert(_node->key.begin() + insertpos,make_pair(_index,_data));    //插入
-    }
-    if(_node->key.size() <= order - 1) { _isupdate = false;return;}
-
+    int insertpos = 0;  //插入位置
+    for(;insertpos < _node->key.size() && _index > _node->key.at(insertpos).first;++insertpos);
+    _node->key.insert(_node->key.begin() + insertpos,make_pair(_index,_data));    //插入
+    if(_node->key.size() <= order - 1)  _isupdate = false;  //未超出上限，不用更新
+    ++size;
+    return;
   }
-
-
+  int findpos = 0;
+  for(;findpos < _node->key.size() && _index > _node->key.at(findpos).first;++findpos);
+  Insert(_node->ptr.at(findpos),_index,_data,_isupdate);
+  if(_isupdate == false) return;
+  //往上更新：
+  //1.根据 finpos 找到返回结点
+  //2.删除返回节点中间值，并将返回节点一分为二
+  //3.将中间值插入该节点中，并增加指针指向新分裂的结点
+  //4.判断增加中间值后是否超出上限，停止或继续更新
+  shared_ptr<Bnode<T>>& insertnode = _node->ptr.at(findpos);  //返回结点
+  int midpos = static_cast<int>((insertnode->key.size() / 2) - 1); //中间位置
+  pair<int,T> midkey = insertnode->key.at(midpos);   
+  bool isfirstptr = findpos == 0?true:false;
+  Bnode<T>* newnodeptr = splitNode(insertnode,midpos,findpos == 0 ? true:false);
+  _node->key.insert(_node->key.begin() + findpos,midkey);
+  if(findpos == 0) _node->ptr.insert(_node->ptr.begin(),shared_ptr<Bnode<T>>(newnodeptr));
+  else _node->ptr.insert(_node->ptr.begin() + findpos + 1,shared_ptr<Bnode<T>>(newnodeptr));
+  if(_node->key.size() <= order -1) _isupdate = false;
 }
+
+template <class T>
+inline Bnode<T> *BTree<T>::splitNode(shared_ptr<Bnode<T>> &_node, const int& _midpos,const bool _isfirstptrpos)
+{
+  if(_node->key.size() <= order - 1) throw("this node is not out of upper bound!");
+  Bnode<T>* newBnode = nullptr;
+  if(_isfirstptrpos){  //第一个指针位置，向前分裂
+      newBnode = new Bnode<T>(_node.get(),0,_midpos);
+      _node->key.erase(_node->key.begin(),_node->key.begin() + _midpos + 1);
+      if(!_node->isleaf) _node->ptr.erase(_node->ptr.begin(),_node->ptr.begin() + _midpos + 1);
+      return newBnode;
+  }   //不是第一个指针位置，向后分裂
+  newBnode = new Bnode<T>(_node.get(),_midpos + 1,_node->key.size());
+  _node->key.erase(_node->key.begin() + _midpos,_node->key.end());
+  if(!_node->isleaf) _node->ptr.erase(_node->ptr.begin() + _midpos + 1,_node->ptr.end());
+  return newBnode;
+};
 
 template <class T>
 BTree<T>::BTree(const int &_order)
@@ -183,20 +230,43 @@ inline BTree<T>::BTree(BTree<T> &&_tree){
   root = move(_tree.root);
 }
 template <class T>
-inline void BTree<T>::insert(const int &_index, const T &_data) {
+inline bool BTree<T>::search(const int &_index)
+{
+  if(root == nullptr) return false;
+  if(search(root,_index) == nullptr) return false;
+  else return true;
+}
+template <class T>
+inline void BTree<T>::insert(const int &_index, const T &_data)
+{
   if(root == nullptr){
     root.reset(new Bnode<T>(_index,_data));
     ++size;
     return;
   }
-  Insert(root);
+  if(search(_index)) return;
+  bool isupdate = true;
+  Insert(root,_index,_data,isupdate);
+  if(isupdate == false) return;
+  //分裂根结点
+  int midpos = static_cast<int>(root->key.size() / 2 - 1);
+  pair<int,T> midkey = root->key.at(midpos);
+  Bnode<T>* newsplit = splitNode(root,midpos,false);
+  Bnode<T>* newroot = new Bnode<T>(midkey,false);
+  newroot->ptr.at(0) = root;
+  newroot->ptr.at(1).reset(newsplit);
+  root.reset(newroot);
+}
+template <class T>
+inline void BTree<T>::insert(const pair<int, T> &_key) {
+  insert(_key.first,_key.second);
 };
 
 template <class T>
 inline int BTree<T>::height() const
 {
   if(root == nullptr) return 0;
-  shared_ptr<Bnode>& tmp = root;
+  shared_ptr<Bnode<T>> tmp = root;
   int height = 1;
   while(!tmp->isleaf){
     ++height;
@@ -206,17 +276,29 @@ inline int BTree<T>::height() const
 }
 
 template <class T>
-inline void BTree<T>::preorder() const
-{
-  if(root == nullptr) cout<<"null"<<endl;
-  else preOrder(root);
-}
-
-template <class T>
 inline void BTree<T>::midorder() const
 {
   if(root == nullptr) cout<<"null"<<endl;
   else midOrder(root);
+  cout<<endl;
+}
+
+template <class T>
+inline void BTree<T>::sequenceorder() const
+{
+  if(root == nullptr) cout<<"null"<<endl;
+  queue<pair<shared_ptr<Bnode<T>>,int>> que; //int 存储层数
+  que.push(make_pair(root,1));
+  while(!que.empty()){
+    auto tmp = que.front();
+    que.pop();
+    cout << tmp.second << " : ";
+    tmp.first->printNode();
+    cout << endl;
+    if(!tmp.first->isleaf){
+      for(int i = 0;i < tmp.first->ptr.size();++i) que.push(make_pair(tmp.first->ptr.at(i),tmp.second + 1));
+    }
+  }
 }
 
 template <class T>
@@ -230,7 +312,16 @@ template <class T>
 inline int BTree<T>::length() const
 {
   return size;
+}
+template <class T>
+inline int BTree<T>::getorder() const
+{
+  return order;
+}
+template <class T>
+inline int BTree<T>::getdegree() const
+{
+  return degree;
 };
-
 
 #endif
