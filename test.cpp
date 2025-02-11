@@ -2,8 +2,6 @@
 //
 
 #include "B-Tree.h"
-
-
 int main()
 {
 	BTree<int> btree(4,make_pair(3,5));
